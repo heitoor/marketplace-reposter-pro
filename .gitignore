@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Environment / Secrets
+.env
+credentials.json
+token.pickle
+fb_cookies.pkl
+
+# Data (user-specific, not version controlled)
+data/
+*.db
+
+# Chrome profile (contains session data)
+chrome_profile/
+
+# Build artifacts
+*.spec
+installer_output/
+*.exe
+
+# Logs
+*.log
+
+# Temp
+temp_images/
+*.tmp
+
+# OS
+Thumbs.db
+.DS_Store
+
+# Claude Code
+.claude/
