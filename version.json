@@ -1,5 +1,5 @@
 {
-    "version": "3.1.0",
-    "download_url": "https://github.com/heitoor/marketplace-reposter-pro/releases/download/v3.1.0/MarketplaceReposterPro_Setup_v3.1.0.exe",
-    "notes": "Export/Import CSV e JSON, backup automatico, intervalo configuravel, ChromeDriver automatico, icone do app, 155 testes, correcoes de bugs"
+    "version": "3.1.1",
+    "download_url": "https://github.com/heitoor/marketplace-reposter-pro/releases/download/v3.1.1/MarketplaceReposterPro_Setup_v3.1.1.exe",
+    "notes": "Correcoes: Chrome travando, login Facebook, estabilidade, Windows 11 compat, aviso SmartScreen"
 }
