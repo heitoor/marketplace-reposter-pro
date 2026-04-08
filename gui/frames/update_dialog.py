@@ -31,7 +31,7 @@ class UpdateDialog(ctk.CTkToplevel):
         self._is_downloading = False
 
         self.title("Atualizacao Disponivel")
-        self.geometry("500x340")
+        self.geometry("500x380")
         self.resizable(False, False)
         self.configure(fg_color=COLORS["bg_dark"])
 
@@ -43,7 +43,7 @@ class UpdateDialog(ctk.CTkToplevel):
         # Centralizar na tela
         self.update_idletasks()
         x = (self.winfo_screenwidth() - 500) // 2
-        y = (self.winfo_screenheight() - 340) // 2
+        y = (self.winfo_screenheight() - 380) // 2
         self.geometry(f"+{x}+{y}")
 
         self.protocol("WM_DELETE_WINDOW", self._on_close_attempt)
@@ -84,6 +84,15 @@ class UpdateDialog(ctk.CTkToplevel):
             text="Seus anuncios e configuracoes serao mantidos.",
             font=("Segoe UI", 11),
             text_color=COLORS["text_secondary"],
+        ).pack(pady=(0, 5))
+
+        # Aviso SmartScreen
+        ctk.CTkLabel(
+            self.main_frame,
+            text='O Windows pode exibir um alerta de seguranca.\nClique em "Mais informacoes" e depois "Executar assim mesmo".',
+            font=("Segoe UI", 10),
+            text_color=COLORS["warning_yellow"],
+            wraplength=420,
         ).pack(pady=(0, 10))
 
         # Status / Progresso
