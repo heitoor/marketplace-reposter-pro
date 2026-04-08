@@ -22,33 +22,32 @@ SELENIUM_TIMEOUT = 20
 def _kill_chrome_profile_processes(profile_dir: str):
     """Mata processos Chrome que estejam usando o perfil do app (Windows)."""
     try:
+        # Usar PowerShell (mais confiavel que wmic no Windows 11)
+        ps_cmd = (
+            "Get-CimInstance Win32_Process -Filter \"Name='chrome.exe'\" "
+            "| Select-Object ProcessId,CommandLine "
+            "| ForEach-Object { $_.ProcessId.ToString() + '|' + $_.CommandLine }"
+        )
         result = subprocess.run(
-            ["wmic", "process", "where",
-             "name='chrome.exe'", "get", "CommandLine,ProcessId",
-             "/FORMAT:LIST"],
+            ["powershell", "-NoProfile", "-Command", ps_cmd],
             capture_output=True, text=True, timeout=10,
             creationflags=subprocess.CREATE_NO_WINDOW,
         )
-        # Normalizar separadores para comparacao
         profile_norm = profile_dir.replace("/", "\\").lower()
 
-        current_pid = None
-        current_cmd = None
         for line in result.stdout.splitlines():
             line = line.strip()
-            if line.startswith("CommandLine="):
-                current_cmd = line
-            elif line.startswith("ProcessId="):
-                current_pid = line.split("=", 1)[1].strip()
-                if current_cmd and profile_norm in current_cmd.lower():
-                    logger.info("Matando Chrome orfao (PID %s) usando perfil do app", current_pid)
-                    subprocess.run(
-                        ["taskkill", "/F", "/PID", current_pid],
-                        capture_output=True, timeout=5,
-                        creationflags=subprocess.CREATE_NO_WINDOW,
-                    )
-                current_pid = None
-                current_cmd = None
+            if '|' not in line:
+                continue
+            pid_str, cmd = line.split('|', 1)
+            if cmd and profile_norm in cmd.lower():
+                pid_str = pid_str.strip()
+                logger.info("Matando Chrome orfao (PID %s) usando perfil do app", pid_str)
+                subprocess.run(
+                    ["taskkill", "/F", "/PID", pid_str],
+                    capture_output=True, timeout=5,
+                    creationflags=subprocess.CREATE_NO_WINDOW,
+                )
     except Exception as e:
         logger.debug("Nao foi possivel verificar processos Chrome: %s", e)
 

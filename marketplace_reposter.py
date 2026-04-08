@@ -135,6 +135,7 @@ class MarketplaceReposter:
             return True
 
         print("Faca login no Facebook na janela do Chrome...")
+        self.driver.get('https://www.facebook.com/login')
         if self.login_callback:
             self.login_callback()
         else:

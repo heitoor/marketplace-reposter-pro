@@ -207,7 +207,10 @@ class MainWindow(ctk.CTk):
             pass
 
         if self.worker_thread and not self.worker_thread.is_alive() and self._is_running:
-            self._handle_finished({"success": False, "reposted": 0, "errors": 0})
+            self._handle_finished({
+                "success": False, "reposted": 0, "errors": 0,
+                "imported": 0, "skipped": 0,
+            })
             return
 
         if self._is_running:
@@ -331,4 +334,6 @@ class MainWindow(ctk.CTk):
             self.stop_event.set()
             self.repostagem_frame.log_frame.append_log("Encerrando... aguarde.")
             self.worker_thread.join(timeout=5)
+        if self.data_manager:
+            self.data_manager.close()
         self.destroy()

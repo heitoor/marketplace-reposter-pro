@@ -8,7 +8,7 @@ import sys
 from pathlib import Path
 
 APP_NAME = "MarketplaceReposterPro"
-APP_VERSION = "3.1.0"
+APP_VERSION = "3.1.1"
 
 
 def get_app_dir() -> Path:

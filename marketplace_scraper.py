@@ -144,6 +144,8 @@ class MarketplaceScraper:
         else:
             input("Pressione ENTER apos fazer login...")
 
+        time.sleep(2)
+
         self.driver.get('https://www.facebook.com/marketplace')
         time.sleep(PAGE_LOAD_WAIT)
 

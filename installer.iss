@@ -1,6 +1,6 @@
 [Setup]
 #define MyAppName "Marketplace Reposter Pro"
-#define MyAppVersion "3.1.0"
+#define MyAppVersion "3.1.1"
 #define MyAppPublisher "EITO LABS"
 #define MyAppExeName "MarketplaceReposterPro.exe"
 
