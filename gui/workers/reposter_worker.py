@@ -10,6 +10,8 @@ import threading
 
 from gui.utils.log_redirector import ThreadAwareQueueWriter
 
+LOGIN_TIMEOUT = 300  # 5 minutos para o usuario fazer login
+
 
 class ReposterWorker:
     """
@@ -28,7 +30,6 @@ class ReposterWorker:
 
     def run(self):
         """Entry point da thread worker."""
-        # Instalar redirecionador de stdout
         original_stdout = sys.stdout
         original_stderr = sys.stderr
         thread_id = threading.current_thread().ident
@@ -38,6 +39,10 @@ class ReposterWorker:
 
         try:
             self._apply_settings()
+
+            from dotenv import load_dotenv
+            from gui.utils.paths import get_env_path
+            load_dotenv(get_env_path(), override=True)
 
             from marketplace_reposter import MarketplaceReposter, ReposterError
 
@@ -73,10 +78,14 @@ class ReposterWorker:
             sys.stderr = original_stderr
 
     def _wait_for_login(self):
-        """Bloqueia worker ate GUI confirmar login."""
+        """Bloqueia worker ate GUI confirmar login (com timeout)."""
         self._login_event.clear()
         self.queue.put({"type": "login_required"})
-        self._login_event.wait()
+        logged_in = self._login_event.wait(timeout=LOGIN_TIMEOUT)
+        if not logged_in:
+            raise TimeoutError(
+                f"Timeout de {LOGIN_TIMEOUT}s aguardando login no Facebook."
+            )
         self.queue.put({"type": "status", "fb": "connected"})
 
     def confirm_login(self):
@@ -98,3 +107,5 @@ class ReposterWorker:
         os.environ["MAX_DELAY"] = str(self.settings.get("max_delay", 8))
         os.environ["DELAY_BETWEEN_POSTS"] = str(self.settings.get("delay_between_posts", 420))
         os.environ["HEADLESS"] = str(self.settings.get("headless", False))
+        if "repost_interval_days" in self.settings:
+            os.environ["REPOST_INTERVAL_DAYS"] = str(self.settings["repost_interval_days"])

@@ -10,6 +10,8 @@ import threading
 
 from gui.utils.log_redirector import ThreadAwareQueueWriter
 
+LOGIN_TIMEOUT = 300  # 5 minutos
+
 
 class ScraperWorker:
     """Worker que roda MarketplaceScraper em thread separada."""
@@ -33,6 +35,10 @@ class ScraperWorker:
 
         try:
             self._apply_settings()
+
+            from dotenv import load_dotenv
+            from gui.utils.paths import get_env_path
+            load_dotenv(get_env_path(), override=True)
 
             from marketplace_scraper import MarketplaceScraper
 
@@ -70,10 +76,14 @@ class ScraperWorker:
             sys.stderr = original_stderr
 
     def _wait_for_login(self):
-        """Bloqueia worker ate GUI confirmar login."""
+        """Bloqueia worker ate GUI confirmar login (com timeout)."""
         self._login_event.clear()
         self.queue.put({"type": "login_required"})
-        self._login_event.wait()
+        logged_in = self._login_event.wait(timeout=LOGIN_TIMEOUT)
+        if not logged_in:
+            raise TimeoutError(
+                f"Timeout de {LOGIN_TIMEOUT}s aguardando login no Facebook."
+            )
         self.queue.put({"type": "status", "fb": "connected"})
 
     def confirm_login(self):

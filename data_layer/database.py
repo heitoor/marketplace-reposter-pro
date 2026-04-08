@@ -70,6 +70,19 @@ class Database:
         self.conn.execute("PRAGMA foreign_keys=ON")
         self._run_migrations()
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.close()
+        return False
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _get_schema_version(self) -> int:
         """Retorna versao atual do schema."""
         try:
@@ -159,4 +172,9 @@ class Database:
 
     def close(self):
         """Fecha conexao."""
-        self.conn.close()
+        if self.conn:
+            try:
+                self.conn.close()
+            except Exception:
+                pass
+            self.conn = None

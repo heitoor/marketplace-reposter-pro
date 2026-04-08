@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Facebook Marketplace Reposter - Automacao de repostagem
-Versao 3.0 - Banco local (SQLite) + GUI
+Versao 3.1 - Banco local (SQLite) + GUI
 Desenvolvido por: Heitor
 """
 
@@ -13,19 +13,9 @@ import os
 from datetime import datetime
 from functools import wraps
 
-from dotenv import load_dotenv
-
-from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-
-from gui.utils.paths import get_env_path, get_chrome_profile_dir, get_data_dir
-
-# Carrega variaveis de ambiente do AppData
-load_dotenv(get_env_path())
 
 logger = logging.getLogger(__name__)
 
@@ -34,8 +24,8 @@ QUICK_DELAY = (0.5, 1)
 SHORT_DELAY = (1, 2)
 MEDIUM_DELAY = (3, 5)
 LONG_DELAY = (5, 8)
-PAGE_LOAD_WAIT = 4  # segundos para esperar carregamento de pagina
-SELENIUM_TIMEOUT = 20  # segundos de timeout para WebDriverWait
+PAGE_LOAD_WAIT = 4
+SELENIUM_TIMEOUT = 20
 MAX_RETRY_ATTEMPTS = 3
 RETRY_BASE_DELAY = 2
 
@@ -80,7 +70,6 @@ class MarketplaceReposter:
         self.login_callback = login_callback
         self.stop_event = stop_event
         self.progress_callback = progress_callback
-        # Data manager injetado (LocalDataManager ou qualquer implementacao compativel)
         if data_manager is None:
             from data_layer.local_data_manager import LocalDataManager
             data_manager = LocalDataManager()
@@ -97,62 +86,15 @@ class MarketplaceReposter:
 
     def setup_driver(self):
         """Configura Chrome WebDriver com perfil persistente e anti-deteccao."""
+        logger.info("Configurando navegador...")
         print("Configurando navegador...")
 
-        chrome_options = Options()
-
-        # Anti-deteccao
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('--disable-infobars')
-        chrome_options.add_argument('--disable-extensions')
-
-        # Fingerprint hardening
-        chrome_options.add_argument('--disable-webgl')
-        chrome_options.add_argument('--disable-canvas-antialiasing')
-        chrome_options.add_argument('--disable-accelerated-2d-canvas')
-
-        # Performance
-        chrome_options.add_argument('--start-maximized')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--no-sandbox')
-
-        # Perfil persistente - mantem login entre sessoes
-        profile_dir = get_chrome_profile_dir()
-        chrome_options.add_argument(f'--user-data-dir={profile_dir}')
-
-        if os.getenv('HEADLESS', 'False').lower() == 'true':
-            chrome_options.add_argument('--headless=new')
-
         try:
-            self.driver = webdriver.Chrome(options=chrome_options)
-            self.wait = WebDriverWait(self.driver, SELENIUM_TIMEOUT)
-
-            # Ocultar webdriver property
-            self.driver.execute_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-            # Ocultar plugins e languages padrao de automacao
-            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5],
-                    });
-                    Object.defineProperty(navigator, 'languages', {
-                        get: () => ['pt-BR', 'pt', 'en-US', 'en'],
-                    });
-                    window.chrome = { runtime: {} };
-                """
-            })
-
+            from browser_setup import create_chrome_driver
+            self.driver, self.wait = create_chrome_driver()
             print("Navegador configurado!\n")
-            logger.info("WebDriver configurado com sucesso")
-        except Exception as e:
-            logger.error("Falha ao configurar Chrome: %s", e, exc_info=True)
-            raise ReposterError(
-                f"Erro ao configurar Chrome: {e}. Certifique-se de ter o ChromeDriver instalado!"
-            )
+        except RuntimeError as e:
+            raise ReposterError(str(e))
 
     def human_delay(self, min_sec=None, max_sec=None):
         """Delay humanizado (interruptivel via stop_event)"""
@@ -174,7 +116,6 @@ class MarketplaceReposter:
             return f"'{text}'"
         if '"' not in text:
             return f'"{text}"'
-        # Contem ambos: usar concat()
         parts = text.split("'")
         return "concat(" + ",\"'\",".join(f"'{p}'" for p in parts) + ")"
 
@@ -193,15 +134,14 @@ class MarketplaceReposter:
             print("Ja estava logado!\n")
             return True
 
-        # Nao esta logado - pedir login manual
         print("Faca login no Facebook na janela do Chrome...")
-        self.driver.get('https://www.facebook.com/login')
         if self.login_callback:
             self.login_callback()
         else:
             input("Pressione ENTER apos fazer login...")
 
-        # Verificar se realmente logou
+        time.sleep(2)
+
         self.driver.get('https://www.facebook.com/marketplace')
         time.sleep(PAGE_LOAD_WAIT)
 
@@ -225,7 +165,6 @@ class MarketplaceReposter:
             self.human_delay(*MEDIUM_DELAY)
 
             try:
-                # Procurar botao de opcoes
                 botao_opcoes = self.wait.until(
                     EC.element_to_be_clickable((By.XPATH,
                         "//div[@aria-label='Mais opções' or @aria-label='More options' or contains(@aria-label, 'Ações')]"))
@@ -233,7 +172,6 @@ class MarketplaceReposter:
                 botao_opcoes.click()
                 self.human_delay(*SHORT_DELAY)
 
-                # Clicar em "Excluir"
                 botao_excluir = self.wait.until(
                     EC.element_to_be_clickable((By.XPATH,
                         "//span[contains(text(), 'Excluir') or contains(text(), 'Delete')]"))
@@ -241,7 +179,6 @@ class MarketplaceReposter:
                 botao_excluir.click()
                 self.human_delay(*SHORT_DELAY)
 
-                # Confirmar
                 botao_confirmar = self.wait.until(
                     EC.element_to_be_clickable((By.XPATH,
                         "//span[contains(text(), 'Excluir anúncio') or contains(text(), 'Delete listing')]"))
@@ -351,7 +288,6 @@ class MarketplaceReposter:
             campo_localizacao.send_keys(produto['Localização'])
             self.human_delay(2, 3)
 
-            # Clicar primeira sugestao de localizacao
             try:
                 primeira_sugestao = self.wait.until(
                     EC.element_to_be_clickable((By.XPATH, "//div[@role='option'][1]"))
@@ -370,7 +306,7 @@ class MarketplaceReposter:
             botao_publicar.click()
             self.human_delay(*LONG_DELAY)
 
-            # Capturar URL - validar que eh um link de anuncio
+            # Capturar URL
             novo_link = self.driver.current_url
             if '/marketplace/item/' not in novo_link:
                 print("  URL pos-publicacao nao e de anuncio, buscando link real...")
@@ -421,7 +357,7 @@ class MarketplaceReposter:
             print(f"PRODUTO {idx}/{len(produtos)}: {produto['Título']}")
             print(f"{'=' * 60}\n")
 
-            # 1. Obter imagens (locais, sem download)
+            # 1. Obter imagens
             imagens_locais = self.data_manager.get_imagens(produto)
 
             if not imagens_locais:
@@ -465,7 +401,6 @@ class MarketplaceReposter:
                     time.sleep(min(1, remaining))
                     elapsed += 1
 
-        # Limpar temporarios (no-op para imagens locais)
         self.data_manager.limpar_temp_images()
 
         print("\n" + "=" * 60)
@@ -479,7 +414,8 @@ class MarketplaceReposter:
         """Executa processo completo"""
         try:
             print("\n" + "=" * 60)
-            print("FACEBOOK MARKETPLACE REPOSTER v3.0")
+            from gui.utils.paths import APP_VERSION
+            print(f"FACEBOOK MARKETPLACE REPOSTER v{APP_VERSION}")
             print("Banco Local + Automacao Selenium")
             print("=" * 60 + "\n")
 
@@ -510,6 +446,9 @@ class MarketplaceReposter:
 
 
 if __name__ == "__main__":
+    from dotenv import load_dotenv
+    from gui.utils.paths import get_env_path, get_data_dir
+    load_dotenv(get_env_path())
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

@@ -8,23 +8,16 @@ Navega ate a pagina de vendas, coleta dados de cada anuncio e salva localmente.
 import logging
 import os
 import time
-import uuid
 import random
 import urllib.request
 from datetime import datetime
 from pathlib import Path
 
-from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
-from gui.utils.paths import get_env_path, get_images_dir, get_chrome_profile_dir
-from dotenv import load_dotenv
-
-load_dotenv(get_env_path())
+from gui.utils.paths import get_images_dir
 
 logger = logging.getLogger(__name__)
 
@@ -111,55 +104,15 @@ class MarketplaceScraper:
 
     def setup_driver(self):
         """Configura Chrome WebDriver com perfil persistente."""
+        logger.info("Configurando navegador...")
         print("Configurando navegador...")
 
-        chrome_options = Options()
-
-        # Anti-deteccao
-        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
-        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        chrome_options.add_experimental_option('useAutomationExtension', False)
-        chrome_options.add_argument('--disable-infobars')
-        chrome_options.add_argument('--disable-extensions')
-
-        # Fingerprint hardening
-        chrome_options.add_argument('--disable-webgl')
-        chrome_options.add_argument('--disable-canvas-antialiasing')
-        chrome_options.add_argument('--disable-accelerated-2d-canvas')
-
-        # Performance
-        chrome_options.add_argument('--start-maximized')
-        chrome_options.add_argument('--disable-dev-shm-usage')
-        chrome_options.add_argument('--no-sandbox')
-
-        # Perfil persistente - mantem login entre sessoes
-        profile_dir = get_chrome_profile_dir()
-        chrome_options.add_argument(f'--user-data-dir={profile_dir}')
-
-        if os.getenv('HEADLESS', 'False').lower() == 'true':
-            chrome_options.add_argument('--headless=new')
-
         try:
-            self.driver = webdriver.Chrome(options=chrome_options)
-            self.wait = WebDriverWait(self.driver, SELENIUM_TIMEOUT)
-            self.driver.execute_script(
-                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
-            )
-            self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
-                "source": """
-                    Object.defineProperty(navigator, 'plugins', {
-                        get: () => [1, 2, 3, 4, 5],
-                    });
-                    Object.defineProperty(navigator, 'languages', {
-                        get: () => ['pt-BR', 'pt', 'en-US', 'en'],
-                    });
-                    window.chrome = { runtime: {} };
-                """
-            })
+            from browser_setup import create_chrome_driver
+            self.driver, self.wait = create_chrome_driver()
             print("Navegador configurado!\n")
-        except Exception as e:
-            logger.error("Falha ao configurar Chrome: %s", e, exc_info=True)
-            raise ScraperError(f"Erro ao configurar Chrome: {e}")
+        except RuntimeError as e:
+            raise ScraperError(str(e))
 
     def human_delay(self, min_sec=2, max_sec=4):
         total = random.uniform(min_sec, max_sec)
@@ -184,7 +137,6 @@ class MarketplaceScraper:
             print("Ja estava logado!\n")
             return True
 
-        # Nao esta logado - pedir login manual
         print("Faca login no Facebook na janela do Chrome...")
         self.driver.get('https://www.facebook.com/login')
         if self.login_callback:
@@ -192,7 +144,6 @@ class MarketplaceScraper:
         else:
             input("Pressione ENTER apos fazer login...")
 
-        # Verificar se realmente logou
         self.driver.get('https://www.facebook.com/marketplace')
         time.sleep(PAGE_LOAD_WAIT)
 
@@ -251,29 +202,27 @@ class MarketplaceScraper:
             'image_urls': [],
         }
 
-        # Titulo
+        # Titulo - usar h1 como seletor principal (mais estavel que classes auto-geradas)
         try:
-            title_el = self.driver.find_element(
-                By.CSS_SELECTOR,
-                'span.x1heor9g.x1qlqyl8.x1pd3egz.x1a2a7pz'
-            )
-            data['titulo'] = title_el.text.strip()
-        except NoSuchElementException:
-            try:
-                spans = self.driver.find_elements(By.TAG_NAME, 'h1')
-                if not spans:
-                    spans = self.driver.find_elements(
-                        By.XPATH,
-                        '//span[string-length(text()) > 5 and string-length(text()) < 200]'
-                    )
-                if spans:
-                    for s in spans:
-                        txt = s.text.strip()
-                        if 3 < len(txt) < MAX_TITLE_LENGTH:
-                            data['titulo'] = txt
-                            break
-            except Exception:
-                logger.warning("Nao conseguiu extrair titulo de %s", url)
+            h1_elements = self.driver.find_elements(By.TAG_NAME, 'h1')
+            for h1 in h1_elements:
+                txt = h1.text.strip()
+                if 3 < len(txt) < MAX_TITLE_LENGTH:
+                    data['titulo'] = txt
+                    break
+            # Fallback: spans com texto razoavel
+            if not data['titulo']:
+                spans = self.driver.find_elements(
+                    By.XPATH,
+                    '//span[string-length(text()) > 5 and string-length(text()) < 200]'
+                )
+                for s in spans:
+                    txt = s.text.strip()
+                    if 3 < len(txt) < MAX_TITLE_LENGTH and 'R$' not in txt:
+                        data['titulo'] = txt
+                        break
+        except Exception:
+            logger.warning("Nao conseguiu extrair titulo de %s", url)
 
         # Preco
         try:
@@ -294,7 +243,7 @@ class MarketplaceScraper:
         except Exception:
             logger.warning("Nao conseguiu extrair preco de %s", url)
 
-        # Descricao
+        # Descricao - busca por blocos de texto longos que nao sao titulo nem preco
         try:
             desc_candidates = self.driver.find_elements(
                 By.XPATH,
@@ -310,7 +259,7 @@ class MarketplaceScraper:
         except Exception:
             logger.warning("Nao conseguiu extrair descricao de %s", url)
 
-        # Localizacao
+        # Localizacao - busca por texto com virgula (padrao "Cidade, Estado")
         try:
             loc_elements = self.driver.find_elements(
                 By.XPATH,
@@ -345,7 +294,7 @@ class MarketplaceScraper:
         if not data['data_publicacao']:
             data['data_publicacao'] = datetime.now().strftime('%Y-%m-%d')
 
-        # Imagens
+        # Imagens - busca por src contendo CDN do Facebook
         try:
             img_elements = self.driver.find_elements(
                 By.CSS_SELECTOR,
@@ -355,11 +304,15 @@ class MarketplaceScraper:
             for img in img_elements:
                 src = img.get_attribute('src')
                 if src and ('scontent' in src or 'fbcdn' in src):
-                    natural_w = self.driver.execute_script(
-                        "return arguments[0].naturalWidth", img
-                    )
-                    if natural_w and int(natural_w) < MIN_IMAGE_WIDTH:
-                        continue
+                    # Verificar tamanho real da imagem (ignorar icones/avatares)
+                    try:
+                        natural_w = self.driver.execute_script(
+                            "return arguments[0].naturalWidth || arguments[0].width", img
+                        )
+                        if natural_w and int(natural_w) < MIN_IMAGE_WIDTH:
+                            continue
+                    except Exception:
+                        pass  # Em caso de erro no JS, incluir a imagem
                     if src not in seen_srcs:
                         seen_srcs.add(src)
                         data['image_urls'].append(src)
@@ -383,29 +336,32 @@ class MarketplaceScraper:
         except Exception:
             pass
 
-        # Validar e sanitizar dados
         data = validate_listing_data(data)
         return data
 
-    def _download_images(self, listing_id, image_urls):
-        """Faz download das imagens para a pasta local do listing."""
+    def _download_images_to_temp(self, image_urls):
+        """Faz download das imagens para pasta temporaria.
+
+        Returns:
+            Lista de caminhos locais dos arquivos baixados.
+        """
         if not image_urls:
             return []
 
-        images_dir = get_images_dir() / listing_id
-        images_dir.mkdir(parents=True, exist_ok=True)
+        import tempfile
+        temp_dir = Path(tempfile.mkdtemp(prefix="reposter_import_"))
 
         downloaded = []
         for idx, url in enumerate(image_urls[:MAX_IMAGES_PER_LISTING]):
             try:
                 ext = '.jpg'
-                dest = images_dir / f"{idx:03d}_img{ext}"
+                dest = temp_dir / f"{idx:03d}_img{ext}"
                 response = urllib.request.urlopen(url, timeout=IMAGE_DOWNLOAD_TIMEOUT)
                 with open(str(dest), 'wb') as f:
                     f.write(response.read())
                 downloaded.append(str(dest))
             except Exception as e:
-                logger.warning("Erro ao baixar imagem %d de %s: %s", idx, listing_id, e)
+                logger.warning("Erro ao baixar imagem %d: %s", idx, e)
                 print(f"  Erro ao baixar imagem {idx}: {e}")
 
         return downloaded
@@ -473,9 +429,8 @@ class MarketplaceScraper:
                     print(f"  Preco: R$ {data['preco']}")
                     print(f"  Imagens: {len(data['image_urls'])}")
 
-                    # Criar listing no banco
-                    listing_id = str(uuid.uuid4())
-                    image_paths = self._download_images(listing_id, data['image_urls'])
+                    # Baixar imagens para temp
+                    temp_image_paths = self._download_images_to_temp(data['image_urls'])
 
                     if self.data_manager:
                         listing_data = {
@@ -487,14 +442,24 @@ class MarketplaceScraper:
                             'localizacao': data['localizacao'],
                             'status': 'ativo',
                         }
+                        # create_listing gera o UUID e copia as imagens
+                        # para a pasta correta usando ImageManager
                         created_id = self.data_manager.create_listing(
-                            listing_data, image_paths
+                            listing_data, temp_image_paths
                         )
 
-                        # Atualizar link e data via metodo encapsulado
+                        # Atualizar link e data
                         self.data_manager.update_link_and_date(
                             created_id, link, data['data_publicacao']
                         )
+
+                    # Limpar temp
+                    import shutil
+                    for p in temp_image_paths:
+                        parent = Path(p).parent
+                        if parent.name.startswith("reposter_import_"):
+                            shutil.rmtree(str(parent), ignore_errors=True)
+                            break
 
                     self.imported_count += 1
                     print("  Importado com sucesso!")
@@ -526,7 +491,9 @@ class MarketplaceScraper:
 
 
 if __name__ == "__main__":
-    from gui.utils.paths import get_data_dir
+    from dotenv import load_dotenv
+    from gui.utils.paths import get_env_path, get_data_dir
+    load_dotenv(get_env_path())
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',

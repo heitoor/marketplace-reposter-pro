@@ -10,7 +10,7 @@ echo.
 echo Iniciando script...
 echo.
 
-python marketplace_reposter.py
+python gui_app.py
 
 echo.
 echo ================================================

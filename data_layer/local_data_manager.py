@@ -3,9 +3,14 @@ Local Data Manager - Substitui GoogleSheetsManager.
 Gerencia anuncios via SQLite + imagens locais.
 """
 
+import csv
+import io
+import json
 import logging
+import shutil
 import uuid
 from datetime import datetime, timedelta
+from pathlib import Path
 
 from data_layer.database import Database
 from data_layer.image_manager import ImageManager
@@ -27,6 +32,9 @@ _COLUMN_TO_KEY = {
     'status': 'Status',
 }
 
+# Intervalo padrao para repostagem (dias)
+DEFAULT_REPOST_INTERVAL_DAYS = 7
+
 
 class LocalDataManager:
     """Gerencia dados de anuncios usando SQLite + imagens locais."""
@@ -37,20 +45,34 @@ class LocalDataManager:
         logger.info("Conectado ao banco de dados local")
         print("Conectado ao banco de dados local!")
 
+    def close(self):
+        """Fecha conexao com o banco."""
+        if self.db:
+            self.db.close()
+
     # ===== Interface compativel com o Reposter =====
 
-    def get_produtos_para_repostar(self) -> list:
-        """Busca anuncios ativos que precisam ser repostados (>7 dias)."""
+    def get_produtos_para_repostar(self, interval_days=None) -> list:
+        """Busca anuncios ativos que precisam ser repostados.
+
+        Args:
+            interval_days: Dias desde ultima postagem para repostar.
+                           None = usa REPOST_INTERVAL_DAYS do env ou default 7.
+        """
+        import os
+        if interval_days is None:
+            interval_days = int(os.getenv('REPOST_INTERVAL_DAYS', DEFAULT_REPOST_INTERVAL_DAYS))
+
         print("Carregando anuncios do banco de dados...")
 
-        sete_dias_atras = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
+        data_limite = (datetime.now() - timedelta(days=interval_days)).strftime('%Y-%m-%d')
 
         rows = self.db.fetchall("""
             SELECT * FROM listings
             WHERE status = 'ativo'
             AND (data_publicacao = '' OR data_publicacao IS NULL OR data_publicacao <= ?)
             ORDER BY data_publicacao ASC
-        """, (sete_dias_atras,))
+        """, (data_limite,))
 
         produtos = []
         for row in rows:
@@ -63,7 +85,7 @@ class LocalDataManager:
         total_count = total['cnt'] if total else 0
 
         print(f"Total de anuncios ativos: {total_count}")
-        print(f"Anuncios para repostar (>7 dias): {len(produtos)}\n")
+        print(f"Anuncios para repostar (>{interval_days} dias): {len(produtos)}\n")
 
         return produtos
 
@@ -86,7 +108,6 @@ class LocalDataManager:
         """Atualiza anuncio apos postagem."""
         try:
             now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            # Padronizar formato da data para YYYY-MM-DD
             if data_publicacao and len(data_publicacao) > 10:
                 data_publicacao = data_publicacao[:10]
             if sucesso:
@@ -110,7 +131,6 @@ class LocalDataManager:
     def update_link_and_date(self, listing_id: str, link: str, data_publicacao: str):
         """Atualiza link do anuncio e data de publicacao."""
         now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        # Padronizar formato da data para YYYY-MM-DD
         if data_publicacao and len(data_publicacao) > 10:
             data_publicacao = data_publicacao[:10]
         self.db.execute("""
@@ -167,11 +187,9 @@ class LocalDataManager:
             now, now,
         ))
 
-        # Salvar imagens
         if image_paths:
             self.image_manager.add_images(listing_id, image_paths)
 
-        # Salvar campos customizados
         custom_fields = data.get('custom_fields', {})
         if custom_fields:
             self.set_custom_fields(listing_id, custom_fields)
@@ -199,11 +217,9 @@ class LocalDataManager:
                 now, listing_id,
             ))
 
-            # Atualizar imagens se fornecidas
             if image_paths is not None:
                 self.image_manager.replace_images(listing_id, image_paths)
 
-            # Atualizar campos customizados
             custom_fields = data.get('custom_fields', {})
             self.set_custom_fields(listing_id, custom_fields)
 
@@ -225,12 +241,21 @@ class LocalDataManager:
             return False
 
     def delete_listings(self, listing_ids: list) -> int:
-        """Deleta multiplos anuncios."""
-        count = 0
-        for lid in listing_ids:
-            if self.delete_listing(lid):
-                count += 1
-        return count
+        """Deleta multiplos anuncios em batch."""
+        if not listing_ids:
+            return 0
+        placeholders = ','.join('?' for _ in listing_ids)
+        try:
+            self.db.execute(
+                f"DELETE FROM listings WHERE id IN ({placeholders})",
+                tuple(listing_ids)
+            )
+            for lid in listing_ids:
+                self.image_manager.delete_listing_images(lid)
+            return len(listing_ids)
+        except Exception as e:
+            logger.error("Erro ao deletar listings em batch: %s", e, exc_info=True)
+            return 0
 
     def update_status(self, listing_id: str, new_status: str) -> bool:
         """Altera status de um anuncio."""
@@ -242,12 +267,16 @@ class LocalDataManager:
         return True
 
     def update_statuses(self, listing_ids: list, new_status: str) -> int:
-        """Altera status de multiplos anuncios."""
-        count = 0
-        for lid in listing_ids:
-            if self.update_status(lid, new_status):
-                count += 1
-        return count
+        """Altera status de multiplos anuncios em batch."""
+        if not listing_ids:
+            return 0
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        placeholders = ','.join('?' for _ in listing_ids)
+        self.db.execute(
+            f"UPDATE listings SET status = ?, updated_at = ? WHERE id IN ({placeholders})",
+            (new_status, now, *listing_ids)
+        )
+        return len(listing_ids)
 
     # ===== Custom Fields =====
 
@@ -272,7 +301,6 @@ class LocalDataManager:
 
     def search_listings(self, query: str) -> list:
         """Busca anuncios por titulo, categoria ou descricao."""
-        # Escapar caracteres especiais do LIKE
         escaped = query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
         like = f"%{escaped}%"
         rows = self.db.fetchall("""
@@ -284,3 +312,153 @@ class LocalDataManager:
             ORDER BY updated_at DESC
         """, (like, like, like, like))
         return [dict(row) for row in rows]
+
+    # ===== Backup =====
+
+    def backup_database(self, dest_path: str = None) -> str:
+        """Cria backup do banco de dados.
+
+        Args:
+            dest_path: Caminho destino. None = AppData/backups/reposter_YYYYMMDD_HHMMSS.db
+
+        Returns:
+            Caminho do backup criado.
+        """
+        from gui.utils.paths import get_data_dir
+        if dest_path is None:
+            backup_dir = get_data_dir() / "backups"
+            backup_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            dest_path = str(backup_dir / f"reposter_{timestamp}.db")
+
+        shutil.copy2(str(self.db.DB_PATH), dest_path)
+        logger.info("Backup criado em: %s", dest_path)
+        return dest_path
+
+    # ===== Export/Import =====
+
+    def export_to_csv(self, file_path: str) -> int:
+        """Exporta todos os listings para CSV.
+
+        Returns:
+            Numero de registros exportados.
+        """
+        rows = self.db.fetchall("""
+            SELECT id, titulo, preco, categoria, condicao, descricao,
+                   localizacao, status, link_anuncio, data_publicacao, post_count
+            FROM listings ORDER BY updated_at DESC
+        """)
+
+        fieldnames = ['id', 'titulo', 'preco', 'categoria', 'condicao',
+                       'descricao', 'localizacao', 'status', 'link_anuncio',
+                       'data_publicacao', 'post_count']
+
+        with open(file_path, 'w', newline='', encoding='utf-8-sig') as f:
+            writer = csv.DictWriter(f, fieldnames=fieldnames)
+            writer.writeheader()
+            for row in rows:
+                writer.writerow(dict(row))
+
+        logger.info("Exportados %d listings para %s", len(rows), file_path)
+        return len(rows)
+
+    def export_to_json(self, file_path: str) -> int:
+        """Exporta todos os listings para JSON.
+
+        Returns:
+            Numero de registros exportados.
+        """
+        rows = self.db.fetchall("""
+            SELECT id, titulo, preco, categoria, condicao, descricao,
+                   localizacao, status, link_anuncio, data_publicacao, post_count
+            FROM listings ORDER BY updated_at DESC
+        """)
+
+        data = []
+        for row in rows:
+            listing = dict(row)
+            listing['custom_fields'] = self.get_custom_fields(listing['id'])
+            listing['images'] = self.image_manager.get_images(listing['id'])
+            data.append(listing)
+
+        with open(file_path, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+
+        logger.info("Exportados %d listings para %s", len(data), file_path)
+        return len(data)
+
+    def import_from_csv(self, file_path: str) -> tuple:
+        """Importa listings de CSV.
+
+        Returns:
+            Tupla (importados, erros).
+        """
+        imported = 0
+        errors = 0
+
+        with open(file_path, 'r', encoding='utf-8-sig') as f:
+            reader = csv.DictReader(f)
+            for row_data in reader:
+                try:
+                    data = {
+                        'titulo': row_data.get('titulo', ''),
+                        'preco': row_data.get('preco', 0),
+                        'categoria': row_data.get('categoria', ''),
+                        'condicao': row_data.get('condicao', 'Novo'),
+                        'descricao': row_data.get('descricao', ''),
+                        'localizacao': row_data.get('localizacao', ''),
+                        'status': row_data.get('status', 'ativo'),
+                    }
+                    lid = self.create_listing(data, [])
+                    # Se tiver link e data, atualizar
+                    link = row_data.get('link_anuncio', '')
+                    data_pub = row_data.get('data_publicacao', '')
+                    if link or data_pub:
+                        self.update_link_and_date(lid, link, data_pub)
+                    imported += 1
+                except Exception as e:
+                    logger.warning("Erro ao importar linha CSV: %s", e)
+                    errors += 1
+
+        logger.info("CSV importado: %d OK, %d erros", imported, errors)
+        return imported, errors
+
+    def import_from_json(self, file_path: str) -> tuple:
+        """Importa listings de JSON.
+
+        Returns:
+            Tupla (importados, erros).
+        """
+        imported = 0
+        errors = 0
+
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        if not isinstance(data, list):
+            data = [data]
+
+        for item in data:
+            try:
+                listing_data = {
+                    'titulo': item.get('titulo', ''),
+                    'preco': item.get('preco', 0),
+                    'categoria': item.get('categoria', ''),
+                    'condicao': item.get('condicao', 'Novo'),
+                    'descricao': item.get('descricao', ''),
+                    'localizacao': item.get('localizacao', ''),
+                    'status': item.get('status', 'ativo'),
+                    'custom_fields': item.get('custom_fields', {}),
+                }
+                lid = self.create_listing(listing_data, [])
+                link = item.get('link_anuncio', '')
+                data_pub = item.get('data_publicacao', '')
+                if link or data_pub:
+                    self.update_link_and_date(lid, link, data_pub)
+                imported += 1
+            except Exception as e:
+                logger.warning("Erro ao importar item JSON: %s", e)
+                errors += 1
+
+        logger.info("JSON importado: %d OK, %d erros", imported, errors)
+        return imported, errors

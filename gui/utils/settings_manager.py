@@ -15,6 +15,7 @@ class SettingsManager:
         "min_delay": 3,
         "max_delay": 8,
         "delay_between_posts": 420,
+        "repost_interval_days": 7,
         "headless": False,
     }
 
@@ -22,6 +23,7 @@ class SettingsManager:
         "min_delay": "MIN_DELAY",
         "max_delay": "MAX_DELAY",
         "delay_between_posts": "DELAY_BETWEEN_POSTS",
+        "repost_interval_days": "REPOST_INTERVAL_DAYS",
         "headless": "HEADLESS",
     }
 

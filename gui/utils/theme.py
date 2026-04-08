@@ -3,6 +3,19 @@ Constantes de tema e cores para a GUI.
 Dark Mode com acentos em azul.
 """
 
+import sys
+
+# Fonte principal - Segoe UI no Windows, fallback para sans-serif em outros OS
+if sys.platform == "win32":
+    _FONT_FAMILY = "Segoe UI"
+    _MONO_FAMILY = "Consolas"
+elif sys.platform == "darwin":
+    _FONT_FAMILY = "SF Pro Display"
+    _MONO_FAMILY = "SF Mono"
+else:
+    _FONT_FAMILY = "Ubuntu"
+    _MONO_FAMILY = "Ubuntu Mono"
+
 COLORS = {
     # Backgrounds
     "bg_dark": "#1a1a2e",
@@ -44,20 +57,22 @@ COLORS = {
 }
 
 FONTS = {
-    "title": ("Segoe UI", 24, "bold"),
-    "subtitle": ("Segoe UI", 13),
-    "button": ("Segoe UI", 14, "bold"),
-    "button_small": ("Segoe UI", 12),
-    "label": ("Segoe UI", 13),
-    "log": ("Consolas", 12),
-    "status": ("Segoe UI", 11),
-    "table_header": ("Segoe UI", 12, "bold"),
-    "table_cell": ("Segoe UI", 12),
-    "dialog_title": ("Segoe UI", 18, "bold"),
-    "section_title": ("Segoe UI", 14, "bold"),
+    "title": (_FONT_FAMILY, 24, "bold"),
+    "subtitle": (_FONT_FAMILY, 13),
+    "button": (_FONT_FAMILY, 14, "bold"),
+    "button_small": (_FONT_FAMILY, 12),
+    "label": (_FONT_FAMILY, 13),
+    "log": (_MONO_FAMILY, 12),
+    "status": (_FONT_FAMILY, 11),
+    "table_header": (_FONT_FAMILY, 12, "bold"),
+    "table_cell": (_FONT_FAMILY, 12),
+    "dialog_title": (_FONT_FAMILY, 18, "bold"),
+    "section_title": (_FONT_FAMILY, 14, "bold"),
 }
 
 APP_NAME = "EITO LABS"
-APP_SUBTITLE = "Marketplace Reposter Pro v3.0"
+from gui.utils.paths import APP_VERSION
+
+APP_SUBTITLE = f"Marketplace Reposter Pro v{APP_VERSION}"
 WINDOW_SIZE = "1100x700"
 WINDOW_MIN_SIZE = (1000, 600)

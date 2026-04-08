@@ -12,10 +12,12 @@ from gui.frames.header_frame import HeaderFrame
 from gui.frames.repostagem_frame import RepostagemFrame
 from gui.frames.listings_frame import ListingsFrame
 from gui.frames.login_dialog import LoginDialog
+from gui.frames.update_dialog import UpdateDialog
 from gui.workers.reposter_worker import ReposterWorker
 from gui.workers.scraper_worker import ScraperWorker
 from gui.utils.settings_manager import SettingsManager
 from gui.utils.theme import COLORS, FONTS, WINDOW_SIZE, WINDOW_MIN_SIZE
+from gui.utils.updater import check_for_updates
 
 from data_layer.local_data_manager import LocalDataManager
 
@@ -42,6 +44,7 @@ class MainWindow(ctk.CTk):
 
         self._create_widgets()
         self._load_initial_settings()
+        self._check_updates()
 
         self.protocol("WM_DELETE_WINDOW", self._on_closing)
 
@@ -312,6 +315,15 @@ class MainWindow(ctk.CTk):
         self.worker = None
         self.worker_thread = None
         self._active_mode = None
+
+    def _check_updates(self):
+        """Verifica se ha atualizacao disponivel em background."""
+        def _on_update_result(update_info):
+            # callback vem de thread de background, usar after() para thread-safety
+            if update_info:
+                self.after(0, lambda info=update_info: UpdateDialog(self, info))
+
+        check_for_updates(_on_update_result)
 
     def _on_closing(self):
         """Handler de fechamento da janela."""

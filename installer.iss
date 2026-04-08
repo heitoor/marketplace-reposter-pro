@@ -1,6 +1,6 @@
 [Setup]
 #define MyAppName "Marketplace Reposter Pro"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "3.1.0"
 #define MyAppPublisher "EITO LABS"
 #define MyAppExeName "MarketplaceReposterPro.exe"
 
@@ -17,6 +17,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 PrivilegesRequired=lowest
+SetupIconFile=assets\icon.ico
+UninstallDisplayIcon={app}\{#MyAppExeName}
 
 [Languages]
 Name: "portuguese"; MessagesFile: "compiler:Languages\BrazilianPortuguese.isl"
@@ -28,10 +30,6 @@ Name: "desktopicon"; Description: "Criar atalho na Area de Trabalho"; GroupDescr
 [Files]
 Source: "dist\MarketplaceReposterPro\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-[Dirs]
-Name: "{app}\data"; Permissions: users-modify
-Name: "{app}\data\images"; Permissions: users-modify
-
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Desinstalar {#MyAppName}"; Filename: "{uninstallexe}"
@@ -40,22 +38,10 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Abrir {#MyAppName}"; Flags: nowait postinstall skipifsilent
 
-[Code]
-procedure CurStepChanged(CurStep: TSetupStep);
-var
-  EnvPath: String;
-begin
-  if CurStep = ssPostInstall then
-  begin
-    EnvPath := ExpandConstant('{app}\.env');
-    if not FileExists(EnvPath) then
-    begin
-      SaveStringToFile(EnvPath,
-        'MIN_DELAY=3' + #13#10 +
-        'MAX_DELAY=8' + #13#10 +
-        'DELAY_BETWEEN_POSTS=420' + #13#10 +
-        'HEADLESS=False' + #13#10,
-        False);
-    end;
-  end;
-end;
+[UninstallDelete]
+; Limpa apenas arquivos temporarios do app, NUNCA os dados do usuario em AppData
+Type: filesandordirs; Name: "{app}\__pycache__"
+Type: filesandordirs; Name: "{app}\*.log"
+
+[Messages]
+portuguese.ConfirmUninstall=Deseja remover o %1?%n%nSeus anuncios, imagens e configuracoes serao mantidos.
