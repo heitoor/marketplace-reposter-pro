@@ -4,6 +4,7 @@ Usado pelo MarketplaceReposter e MarketplaceScraper.
 """
 
 import os
+import subprocess
 import logging
 
 from selenium import webdriver
@@ -16,6 +17,40 @@ from gui.utils.paths import get_chrome_profile_dir
 logger = logging.getLogger(__name__)
 
 SELENIUM_TIMEOUT = 20
+
+
+def _kill_chrome_profile_processes(profile_dir: str):
+    """Mata processos Chrome que estejam usando o perfil do app (Windows)."""
+    try:
+        result = subprocess.run(
+            ["wmic", "process", "where",
+             "name='chrome.exe'", "get", "CommandLine,ProcessId",
+             "/FORMAT:LIST"],
+            capture_output=True, text=True, timeout=10,
+            creationflags=subprocess.CREATE_NO_WINDOW,
+        )
+        # Normalizar separadores para comparacao
+        profile_norm = profile_dir.replace("/", "\\").lower()
+
+        current_pid = None
+        current_cmd = None
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("CommandLine="):
+                current_cmd = line
+            elif line.startswith("ProcessId="):
+                current_pid = line.split("=", 1)[1].strip()
+                if current_cmd and profile_norm in current_cmd.lower():
+                    logger.info("Matando Chrome orfao (PID %s) usando perfil do app", current_pid)
+                    subprocess.run(
+                        ["taskkill", "/F", "/PID", current_pid],
+                        capture_output=True, timeout=5,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                current_pid = None
+                current_cmd = None
+    except Exception as e:
+        logger.debug("Nao foi possivel verificar processos Chrome: %s", e)
 
 
 def create_chrome_driver(headless=None, timeout=SELENIUM_TIMEOUT):
@@ -53,6 +88,19 @@ def create_chrome_driver(headless=None, timeout=SELENIUM_TIMEOUT):
 
     # Perfil persistente - mantem login entre sessoes
     profile_dir = get_chrome_profile_dir()
+
+    # Matar processos Chrome orfaos que travam o perfil
+    _kill_chrome_profile_processes(str(profile_dir))
+
+    # Remover lock file que impede o Chrome de iniciar
+    lock_file = profile_dir / "SingletonLock"
+    if lock_file.exists():
+        try:
+            lock_file.unlink()
+            logger.info("Lock file removido: %s", lock_file)
+        except OSError:
+            pass
+
     chrome_options.add_argument(f'--user-data-dir={profile_dir}')
 
     # Headless
