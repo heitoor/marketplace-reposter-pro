@@ -73,10 +73,11 @@ if exist "%INSTALLER_PATH%" (
     gh release create "v%NEW_VERSION%" --title "v%NEW_VERSION%" --notes "%RELEASE_NOTES%" --latest
 )
 
-REM Pegar URL de download do release
-for /f "delims=" %%u in ('gh release view "v%NEW_VERSION%" --json assets --jq ".assets[0].url" 2^>nul') do set DOWNLOAD_URL=%%u
+REM Pegar URL direta de download do asset (browser_download_url para download direto)
+for /f "delims=" %%u in ('gh release view "v%NEW_VERSION%" --json assets --jq ".assets[0].browser_download_url" 2^>nul') do set DOWNLOAD_URL=%%u
 if "%DOWNLOAD_URL%"=="" (
-    for /f "delims=" %%u in ('gh release view "v%NEW_VERSION%" --json url --jq ".url" 2^>nul') do set DOWNLOAD_URL=%%u
+    REM Fallback: construir URL manualmente
+    set DOWNLOAD_URL=https://github.com/heitoor/marketplace-reposter-pro/releases/download/v%NEW_VERSION%/MarketplaceReposterPro_Setup_v%NEW_VERSION%.exe
 )
 
 echo.

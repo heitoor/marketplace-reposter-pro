@@ -7,6 +7,7 @@ import sys
 import queue
 import threading
 import json
+import tempfile
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 from http.server import HTTPServer, BaseHTTPRequestHandler
@@ -174,6 +175,37 @@ class TestUpdater:
 
         assert len(results) == 1
         assert results[0] is None  # Erro silencioso
+
+    def test_download_update(self):
+        from gui.utils.updater import download_update
+        import tempfile
+
+        # Mock da resposta HTTP com conteudo fake
+        mock_response = MagicMock()
+        mock_response.headers = {"Content-Length": "1024"}
+        mock_response.read = MagicMock(side_effect=[b'\x00' * 512, b'\x00' * 512, b''])
+        mock_response.__enter__ = lambda s: s
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        progress_calls = []
+
+        with patch("gui.utils.updater.urlopen", return_value=mock_response), \
+             patch("gui.utils.updater.get_data_dir") as mock_dir:
+            tmp = Path(tempfile.mkdtemp())
+            mock_dir.return_value = tmp
+
+            result = download_update(
+                "https://example.com/Setup_v3.1.0.exe",
+                progress_callback=lambda d, t: progress_calls.append((d, t))
+            )
+
+            assert Path(result).exists()
+            assert result.endswith(".exe")
+            assert len(progress_calls) >= 1
+
+            # Cleanup
+            import shutil
+            shutil.rmtree(str(tmp), ignore_errors=True)
 
 
 # ===== Paths =====
